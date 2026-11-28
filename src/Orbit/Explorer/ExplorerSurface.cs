@@ -20,6 +20,18 @@ internal static class ExplorerSurface
     private static readonly string[] ExplorerRootClasses = ["CabinetWClass", "ExploreWClass"];
     private static readonly string[] DesktopRootClasses = ["Progman", "WorkerW"];
     private static readonly string[] FileViewClasses = ["DirectUIHWND", "SysListView32"];
+    private static readonly string[] TaskbarClasses = ["Shell_TrayWnd", "Shell_SecondaryTrayWnd", "TaskListThumbnailWnd"];
+
+    public static bool IsTaskbarAt(NativePoint point)
+    {
+        var window = NativeMethods.WindowFromPoint(point);
+        if (window == IntPtr.Zero)
+        {
+            return false;
+        }
+        var root = NativeMethods.GetAncestor(window, NativeMethods.RootAncestor);
+        return TaskbarClasses.Contains(NativeMethods.ClassNameOf(root));
+    }
 
     public static Surface FileViewAt(NativePoint point)
     {

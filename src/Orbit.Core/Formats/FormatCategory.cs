@@ -6,8 +6,7 @@ public sealed record FormatCategory(
     string Accent,
     string OnAccent,
     IReadOnlyList<string> Sources,
-    IReadOnlyList<string> Targets,
-    IReadOnlyDictionary<string, string> Hints)
+    IReadOnlyList<string> Targets)
 {
     public IReadOnlyList<string> FolderTargets { get; init; } = [];
 

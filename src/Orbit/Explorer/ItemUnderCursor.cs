@@ -10,22 +10,22 @@ internal static class ItemUnderCursor
     private const string NameAutomationId = "System.ItemNameDisplay";
     private const double LabelBelowIconShare = 0.35;
 
-    public static Task<NativePoint?> FindCenterAsync(NativePoint press)
+    public static Task<NativeRect?> FindFileBoxAsync(NativePoint press)
     {
-        return Task.Run(() => FindCenter(press));
+        return Task.Run(() => FindFileBox(press));
     }
 
-    private static NativePoint? FindCenter(NativePoint press)
+    private static NativeRect? FindFileBox(NativePoint press)
     {
-        var desktopIcon = DesktopIcons.IconRectAt(press);
-        if (desktopIcon is NativeRect icon)
+        var desktopItem = DesktopIcons.ItemRectAt(press);
+        if (desktopItem is not null)
         {
-            return new NativePoint(icon.Left + icon.Width / 2, icon.Top + icon.Height / 2);
+            return desktopItem;
         }
         try
         {
             var item = FileItemAt(press);
-            return item is null ? null : CenterOf(item, press);
+            return item is null ? null : FileBoxOf(item, press);
         }
         catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or System.Runtime.InteropServices.COMException)
         {
@@ -54,27 +54,47 @@ internal static class ItemUnderCursor
         return null;
     }
 
-    private static NativePoint CenterOf(AutomationElement item, NativePoint press)
+    private static NativeRect FileBoxOf(AutomationElement item, NativePoint press)
     {
         var itemBounds = item.Current.BoundingRectangle;
         if (itemBounds.IsEmpty || itemBounds.Width <= 0 || itemBounds.Height <= 0)
         {
-            return press;
+            return SquareAround(press, 0);
         }
-        var centerX = (int)Math.Round(itemBounds.Left + itemBounds.Width / 2);
-        var centerY = (int)Math.Round(itemBounds.Top + itemBounds.Height / 2);
-        var nameBounds = NameBoundsOf(item);
-        if (nameBounds is not System.Windows.Rect label)
+        if (NameBoundsOf(item) is not System.Windows.Rect label)
         {
-            return new NativePoint(centerX, centerY);
+            return ToNativeRect(itemBounds);
         }
         var labelIsBelowIcon = label.Top - itemBounds.Top > itemBounds.Height * LabelBelowIconShare;
         if (labelIsBelowIcon)
         {
-            var iconMiddleY = (int)Math.Round((itemBounds.Top + label.Top) / 2);
-            return new NativePoint(centerX, iconMiddleY);
+            return ToNativeRect(itemBounds);
         }
-        return new NativePoint(press.X, centerY);
+        var rowMiddle = (int)Math.Round(itemBounds.Top + itemBounds.Height / 2);
+        return SquareAround(new NativePoint(press.X, rowMiddle), itemBounds.Height);
+    }
+
+    private static NativeRect SquareAround(NativePoint center, double side)
+    {
+        var half = (int)Math.Round(side / 2);
+        return new NativeRect
+        {
+            Left = center.X - half,
+            Top = center.Y - half,
+            Right = center.X + half,
+            Bottom = center.Y + half,
+        };
+    }
+
+    private static NativeRect ToNativeRect(System.Windows.Rect bounds)
+    {
+        return new NativeRect
+        {
+            Left = (int)Math.Round(bounds.Left),
+            Top = (int)Math.Round(bounds.Top),
+            Right = (int)Math.Round(bounds.Right),
+            Bottom = (int)Math.Round(bounds.Bottom),
+        };
     }
 
     private static System.Windows.Rect? NameBoundsOf(AutomationElement item)

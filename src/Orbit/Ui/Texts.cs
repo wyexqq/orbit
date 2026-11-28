@@ -3,22 +3,6 @@ using Orbit.Core.Formats;
 
 namespace Orbit.Ui;
 
-internal readonly record struct SourceDescription(string Label, string Sub, string Short)
-{
-    public static SourceDescription Of(IReadOnlyList<string> files)
-    {
-        var count = files.Count;
-        var kinds = files.Select(FormatCatalog.ExtensionOf).Distinct().ToList();
-        if (kinds.Count == 1)
-        {
-            var label = kinds[0].ToUpperInvariant();
-            var sub = count > 1 ? $"{count} {Texts.Files(count)}" : string.Empty;
-            return new SourceDescription(label, sub, label);
-        }
-        return new SourceDescription(count.ToString(), Texts.Files(count), $"{count} {Texts.Files(count)}");
-    }
-}
-
 internal static class Texts
 {
     public static string Files(int count)

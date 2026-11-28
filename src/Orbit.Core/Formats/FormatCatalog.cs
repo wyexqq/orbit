@@ -2,9 +2,6 @@ namespace Orbit.Core.Formats;
 
 public static class FormatCatalog
 {
-    public const string RenameHint = "Тот же формат — просто переименую";
-    public const string StreamCopyHint = "Без перекодирования — почти мгновенно";
-
     public static IReadOnlyList<FormatCategory> Categories { get; } = CreateCategories();
 
     private static readonly Dictionary<string, string> Aliases = new()
@@ -51,20 +48,6 @@ public static class FormatCatalog
         return group.Contains(sourceExtension) && group.Contains(target);
     }
 
-    public static string HintFor(string sourceExtension, string target)
-    {
-        if (IsRename(sourceExtension, target))
-        {
-            return RenameHint;
-        }
-        if (CanStreamCopy(sourceExtension, target))
-        {
-            return StreamCopyHint;
-        }
-        var category = CategoryOf(sourceExtension);
-        return category?.Hints.GetValueOrDefault(target) ?? string.Empty;
-    }
-
     public static IReadOnlyList<string> TargetsFor(IReadOnlyList<string> paths)
     {
         if (paths.Count == 0)
@@ -104,69 +87,28 @@ public static class FormatCatalog
                 "#0F8F6F",
                 "#FFFFFF",
                 ["jpg", "jpeg", "png", "webp", "heic", "avif", "bmp", "tiff", "tif", "ico"],
-                ["png", "jpg", "webp", "svg", "pdf", "ico", "bmp", "gif", "tiff", "avif"],
-                new Dictionary<string, string>
-                {
-                    ["png"] = "Без потерь, с прозрачностью",
-                    ["jpg"] = "Легче, но без прозрачности",
-                    ["webp"] = "Лёгкий формат для сайтов",
-                    ["svg"] = "Обвод в вектор — для логотипов и иконок",
-                    ["pdf"] = "Картинка на страницу PDF",
-                    ["ico"] = "Иконка 16–256 px",
-                    ["bmp"] = "Без сжатия",
-                    ["gif"] = "Не больше 256 цветов",
-                    ["tiff"] = "Для печати",
-                    ["avif"] = "Самый лёгкий, открывается не везде",
-                }),
+                ["png", "jpg", "webp", "svg", "pdf", "ico", "bmp", "gif", "tiff", "avif"]),
             new FormatCategory(
                 "vector",
                 "Вектор",
                 "#0B8AA0",
                 "#FFFFFF",
                 ["svg"],
-                ["png", "jpg", "webp", "pdf", "ico"],
-                new Dictionary<string, string>
-                {
-                    ["png"] = "Отрисую в 2048 px с прозрачностью",
-                    ["jpg"] = "Отрисую на белом фоне",
-                    ["webp"] = "Отрисую для сайта",
-                    ["pdf"] = "Останется векторным",
-                    ["ico"] = "Иконка 16–256 px",
-                }),
+                ["png", "jpg", "webp", "pdf", "ico"]),
             new FormatCategory(
                 "animation",
                 "GIF-анимация",
                 "#B23D8D",
                 "#FFFFFF",
                 ["gif"],
-                ["mp4", "webm", "webp", "png", "jpg"],
-                new Dictionary<string, string>
-                {
-                    ["mp4"] = "Видео, в разы легче",
-                    ["webm"] = "Видео для сайтов",
-                    ["webp"] = "Анимация, легче GIF",
-                    ["png"] = "Первый кадр",
-                    ["jpg"] = "Первый кадр",
-                }),
+                ["mp4", "webm", "webp", "png", "jpg"]),
             new FormatCategory(
                 "video",
                 "Видео",
                 "#6F4FE8",
                 "#FFFFFF",
                 ["mp4", "mov", "mkv", "avi", "webm", "wmv", "m4v"],
-                ["mp4", "mov", "mkv", "webm", "gif", "mp3", "avi", "wav", "m4a"],
-                new Dictionary<string, string>
-                {
-                    ["mp4"] = "Открывается везде",
-                    ["mov"] = "Для Apple и монтажа",
-                    ["mkv"] = "Контейнер без ограничений",
-                    ["webm"] = "Для сайтов",
-                    ["gif"] = "Анимация без звука",
-                    ["mp3"] = "Только звук",
-                    ["avi"] = "Старый формат",
-                    ["wav"] = "Звук без сжатия",
-                    ["m4a"] = "Звук в AAC",
-                })
+                ["mp4", "mov", "mkv", "webm", "gif", "mp3", "avi", "wav", "m4a"])
             {
                 StreamCopyGroup = ["mp4", "mov", "mkv", "m4v"],
             },
@@ -176,49 +118,21 @@ public static class FormatCatalog
                 "#E8971A",
                 "#201300",
                 ["mp3", "wav", "flac", "ogg", "m4a", "aac", "opus", "wma"],
-                ["mp3", "wav", "flac", "ogg", "m4a", "opus", "aac"],
-                new Dictionary<string, string>
-                {
-                    ["mp3"] = "Открывается везде, 320 кбит/с",
-                    ["wav"] = "Без сжатия",
-                    ["flac"] = "Без потерь, легче WAV",
-                    ["ogg"] = "Открытый формат",
-                    ["m4a"] = "AAC, для Apple",
-                    ["opus"] = "Лучшее сжатие, хорош для голоса",
-                    ["aac"] = "Как M4A, без контейнера",
-                }),
+                ["mp3", "wav", "flac", "ogg", "m4a", "opus", "aac"]),
             new FormatCategory(
                 "text",
                 "Тексты",
                 "#2F6FE0",
                 "#FFFFFF",
                 ["docx", "doc", "odt", "rtf", "txt", "md", "html"],
-                ["pdf", "docx", "txt", "rtf", "odt", "doc", "html", "md"],
-                new Dictionary<string, string>
-                {
-                    ["pdf"] = "Сохраню через Word",
-                    ["docx"] = "Обычный Word",
-                    ["txt"] = "Только текст, без оформления",
-                    ["rtf"] = "Простой формат с оформлением",
-                    ["odt"] = "Для LibreOffice",
-                    ["doc"] = "Word 97–2003",
-                    ["html"] = "Веб-страница",
-                    ["md"] = "Разметка Markdown",
-                }),
+                ["pdf", "docx", "txt", "rtf", "odt", "doc", "html", "md"]),
             new FormatCategory(
                 "pdf",
                 "PDF",
                 "#D63F35",
                 "#FFFFFF",
                 ["pdf"],
-                ["docx", "txt", "png", "jpg"],
-                new Dictionary<string, string>
-                {
-                    ["docx"] = "Word восстановит вёрстку",
-                    ["txt"] = "Только текст",
-                    ["png"] = "Папка: картинка на каждую страницу",
-                    ["jpg"] = "Папка: картинка на каждую страницу",
-                })
+                ["docx", "txt", "png", "jpg"])
             {
                 FolderTargets = ["png", "jpg"],
             },
@@ -228,17 +142,7 @@ public static class FormatCatalog
                 "#D0571E",
                 "#FFFFFF",
                 ["pptx", "ppt", "odp"],
-                ["pdf", "pptx", "ppt", "odp", "mp4", "png", "jpg"],
-                new Dictionary<string, string>
-                {
-                    ["pdf"] = "Сохраню через PowerPoint",
-                    ["pptx"] = "Новый формат PowerPoint",
-                    ["ppt"] = "PowerPoint 97–2003",
-                    ["odp"] = "Для LibreOffice",
-                    ["mp4"] = "Видео из слайдов",
-                    ["png"] = "Папка: картинка на каждый слайд",
-                    ["jpg"] = "Папка: картинка на каждый слайд",
-                })
+                ["pdf", "pptx", "ppt", "odp", "mp4", "png", "jpg"])
             {
                 FolderTargets = ["png", "jpg"],
             },
@@ -248,16 +152,7 @@ public static class FormatCatalog
                 "#1A8A4C",
                 "#FFFFFF",
                 ["xlsx", "xls", "ods", "csv"],
-                ["xlsx", "csv", "pdf", "xls", "ods", "txt"],
-                new Dictionary<string, string>
-                {
-                    ["xlsx"] = "Обычный Excel",
-                    ["csv"] = "Открытый лист, текстом",
-                    ["pdf"] = "Сохраню через Excel",
-                    ["xls"] = "Excel 97–2003",
-                    ["ods"] = "Для LibreOffice",
-                    ["txt"] = "Текст с табуляцией",
-                }),
+                ["xlsx", "csv", "pdf", "xls", "ods", "txt"]),
         ];
     }
 }

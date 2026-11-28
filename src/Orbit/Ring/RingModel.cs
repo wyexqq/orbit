@@ -25,19 +25,19 @@ internal sealed class RingModel
     public const string More = "more";
     private const string NeutralAccent = "#2F6FE0";
 
-    public RingModel(IReadOnlyList<string> files, RingOpener opener, bool buttonHeld, NativePoint openPoint)
+    public RingModel(IReadOnlyList<string> files, RingOpener opener, bool buttonHeld, NativePoint openPoint, RingPlace place)
     {
         Files = files;
         Opener = opener;
         ButtonHeld = buttonHeld;
         WasSticky = !buttonHeld;
         OpenPoint = openPoint;
-        var targets = FormatCatalog.TargetsFor(files);
-        var hasMore = targets.Count > RingGeometry.MaxWithoutMore;
-        Main = hasMore ? [.. targets.Take(RingGeometry.MainSlots), More] : targets;
-        Extras = hasMore ? targets.Skip(RingGeometry.MainSlots).ToList() : [];
-        MainLayout = RingGeometry.LayoutMain(Main.Count);
-        ExtraLayout = hasMore ? RingGeometry.LayoutExtras(MainLayout[MoreIndex], Extras.Count) : [];
+        Place = place;
+        var layout = RingLayout.Plan(FormatCatalog.TargetsFor(files), place);
+        Main = layout.Main;
+        Extras = layout.Extras;
+        MainLayout = layout.MainArcs;
+        ExtraLayout = layout.ExtraArcs;
         var category = files.Count > 0 ? FormatCatalog.CategoryOf(FormatCatalog.ExtensionOf(files[0])) : null;
         Accent = category?.Accent ?? NeutralAccent;
         OnAccent = category?.OnAccent ?? "#FFFFFF";
@@ -61,9 +61,13 @@ internal sealed class RingModel
 
     public NativePoint OpenPoint { get; }
 
-    public NativePoint Center { get; set; }
+    public RingPlace Place { get; }
 
-    public double Scale { get; set; } = 1;
+    public NativePoint Center => Place.Center;
+
+    public double Scale => Place.Scale;
+
+    public RingSize Size => Place.Size;
 
     public bool ButtonHeld { get; set; }
 
@@ -100,19 +104,20 @@ internal sealed class RingModel
         var offset = OffsetOf(point);
         var distance = offset.Length;
         var angle = Math.Atan2(offset.Y, offset.X);
-        if (distance < RingGeometry.InnerRadius - 2)
+        if (distance < Size.Inner - 2)
         {
             return new RingHit(HitKind.Center, -1, distance);
         }
-        if (ExtrasOpen && distance > RingGeometry.OuterRadius + 2)
+        if (ExtrasOpen && distance > Size.Outer + 2)
         {
             return ExtrasHitAt(angle, distance);
         }
-        if (distance > RingGeometry.OuterRadius + RingGeometry.Slack || MainLayout.Count == 0)
+        if (distance > Size.Outer + RingGeometry.Slack)
         {
             return null;
         }
-        return new RingHit(HitKind.Main, RingGeometry.SectorIndexAt(angle, MainLayout), distance);
+        var index = RingGeometry.SectorIndexAt(angle, MainLayout);
+        return index == -1 ? null : new RingHit(HitKind.Main, index, distance);
     }
 
     public string? TargetOf(RingHit? hit)
@@ -125,19 +130,14 @@ internal sealed class RingModel
         };
     }
 
-    public RingExtents CurrentExtents()
-    {
-        return RingGeometry.Extents(ExtrasOpen ? ExtraLayout : []);
-    }
-
     private RingHit? ExtrasHitAt(double angle, double distance)
     {
         var extraIndex = RingGeometry.SectorIndexAt(angle, ExtraLayout);
-        if (extraIndex == -1 || distance > RingGeometry.ExtraOuterRadius + RingGeometry.Slack)
+        if (extraIndex == -1 || distance > Size.ExtraOuter + RingGeometry.Slack)
         {
             return null;
         }
-        if (distance < RingGeometry.ExtraInnerRadius - 2)
+        if (distance < Size.ExtraInner - 2)
         {
             return new RingHit(HitKind.Main, MoreIndex, distance);
         }

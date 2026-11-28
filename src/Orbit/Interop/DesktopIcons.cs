@@ -17,7 +17,7 @@ internal static class DesktopIcons
     private const string ListViewClass = "SysListView32";
     private const uint HitTestMessage = 0x1012;
     private const uint ItemRectMessage = 0x100E;
-    private const int IconPartOfItem = 1;
+    private const int IconAndLabelOfItem = 3;
     private const uint AbortIfHung = 0x0002;
     private const uint ReplyTimeoutMilliseconds = 200;
     private const uint MemoryAccess = 0x0008 | 0x0010 | 0x0020;
@@ -26,7 +26,7 @@ internal static class DesktopIcons
     private const uint ReleaseMemory = 0x8000;
     private const int SharedBufferSize = 64;
 
-    public static NativeRect? IconRectAt(NativePoint point)
+    public static NativeRect? ItemRectAt(NativePoint point)
     {
         var listView = NativeMethods.WindowFromPoint(point);
         if (NativeMethods.ClassNameOf(listView) != ListViewClass)
@@ -48,7 +48,7 @@ internal static class DesktopIcons
                 return null;
             }
             var index = ItemIndexAt(listView, process, sharedBuffer, point);
-            return index < 0 ? null : IconRectOf(listView, process, sharedBuffer, index);
+            return index < 0 ? null : ItemRectOf(listView, process, sharedBuffer, index);
         }
         finally
         {
@@ -76,9 +76,9 @@ internal static class DesktopIcons
         return (int)answer.ToInt64();
     }
 
-    private static NativeRect? IconRectOf(IntPtr listView, IntPtr process, IntPtr sharedBuffer, int index)
+    private static NativeRect? ItemRectOf(IntPtr listView, IntPtr process, IntPtr sharedBuffer, int index)
     {
-        var question = new NativeRect { Left = IconPartOfItem };
+        var question = new NativeRect { Left = IconAndLabelOfItem };
         if (!WriteProcessMemory(process, sharedBuffer, ref question, Marshal.SizeOf<NativeRect>(), out _))
         {
             return null;
@@ -87,13 +87,13 @@ internal static class DesktopIcons
         {
             return null;
         }
-        if (!ReadProcessMemory(process, sharedBuffer, out NativeRect iconInList, Marshal.SizeOf<NativeRect>(), out _))
+        if (!ReadProcessMemory(process, sharedBuffer, out NativeRect itemInList, Marshal.SizeOf<NativeRect>(), out _))
         {
             return null;
         }
-        var iconOnScreen = iconInList;
-        MapWindowPoints(listView, IntPtr.Zero, ref iconOnScreen, 2);
-        return iconOnScreen.Width > 0 && iconOnScreen.Height > 0 ? iconOnScreen : null;
+        var itemOnScreen = itemInList;
+        MapWindowPoints(listView, IntPtr.Zero, ref itemOnScreen, 2);
+        return itemOnScreen.Width > 0 && itemOnScreen.Height > 0 ? itemOnScreen : null;
     }
 
     private static bool Ask(IntPtr listView, uint message, IntPtr wParam, IntPtr lParam, out IntPtr answer)

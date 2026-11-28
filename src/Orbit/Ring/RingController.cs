@@ -41,6 +41,7 @@ internal sealed class RingController
     private const double DragStartDistance = 6;
     private const double StickyTravelLimit = 8;
     private const double ArmTravel = 6;
+    private const double WholeRingMargin = 12;
     private static readonly TimeSpan HoldDelay = TimeSpan.FromMilliseconds(450);
     private static readonly TimeSpan ExtrasDwell = TimeSpan.FromMilliseconds(160);
     private static readonly TimeSpan DropGrace = TimeSpan.FromMilliseconds(150);
@@ -154,9 +155,14 @@ internal sealed class RingController
             }
             return;
         }
-        var isDragging = press is { Moved: true, IsOnRing: false };
-        if (!isDragging || !settings.ShakeEnabled || shakeUsedThisPress)
+        var isDraggingFromExplorer = press is { Moved: true, Origin: PressOrigin.ShellView };
+        if (!isDraggingFromExplorer || !settings.ShakeEnabled || shakeUsedThisPress)
         {
+            return;
+        }
+        if (ExplorerSurface.IsTaskbarAt(point))
+        {
+            shake.Reset();
             return;
         }
         if (shake.Feed(point, press!.Scale) && !NativeMethods.IsForegroundWindowMovingOrSizing())
@@ -228,14 +234,26 @@ internal sealed class RingController
             MakeSticky();
             return;
         }
-        var releasedNearPress = releasedPress is null || releasedPress.Travel <= StickyTravelLimit;
-        var releasedOnCenter = ring.Hovered is { Kind: HitKind.Center } && releasedNearPress;
-        if (justOpened || releasedOnCenter)
+        var staysOpen = ring.Opener == RingOpener.Shake
+            ? justOpened || ReleasedOnCenter(ring, releasedPress)
+            : FilesStillInPlace(ring);
+        if (staysOpen)
         {
             MakeSticky();
             return;
         }
         CloseRing();
+    }
+
+    private static bool ReleasedOnCenter(RingModel current, Press? releasedPress)
+    {
+        var releasedNearPress = releasedPress is null || releasedPress.Travel <= StickyTravelLimit;
+        return current.Hovered is { Kind: HitKind.Center } && releasedNearPress;
+    }
+
+    private static bool FilesStillInPlace(RingModel current)
+    {
+        return current.Files.All(File.Exists);
     }
 
     private async void OnHoldElapsed()
@@ -246,8 +264,8 @@ internal sealed class RingController
         {
             return;
         }
-        var fileCenter = await ItemUnderCursor.FindCenterAsync(heldPress.Start);
-        if (fileCenter is not NativePoint center || IsStale(heldPress))
+        var fileBox = await ItemUnderCursor.FindFileBoxAsync(heldPress.Start);
+        if (fileBox is not NativeRect box || IsStale(heldPress))
         {
             return;
         }
@@ -261,7 +279,7 @@ internal sealed class RingController
         {
             return;
         }
-        OpenRing(center, heldPress.Start, convertible, RingOpener.Hold, buttonHeld: true);
+        OpenRing(PlaceAroundFile(box), heldPress.Start, convertible, RingOpener.Hold, buttonHeld: true);
     }
 
     private bool IsStale(Press heldPress)
@@ -304,7 +322,7 @@ internal sealed class RingController
             return;
         }
         var anchor = HotkeyAnchor(surface);
-        OpenRing(anchor, anchor, convertible, RingOpener.Hotkey, buttonHeld: false);
+        OpenRing(PlaceInsideScreen(anchor), anchor, convertible, RingOpener.Hotkey, buttonHeld: false);
     }
 
     private static NativePoint HotkeyAnchor(Surface surface)
@@ -370,14 +388,17 @@ internal sealed class RingController
         CloseRing();
     }
 
-    private void OpenRing(NativePoint center, NativePoint openPoint, IReadOnlyList<string> files, RingOpener opener, bool buttonHeld)
+    private void OpenRing(RingPlace place, NativePoint openPoint, IReadOnlyList<string> files, RingOpener opener, bool buttonHeld)
     {
-        var (workArea, scale) = NativeMethods.MonitorAt(center);
-        var model = new RingModel(files, opener, buttonHeld, openPoint) { Scale = scale };
-        model.Center = ClampCenter(center, model, workArea);
+        var model = new RingModel(files, opener, buttonHeld, openPoint, place);
+        if (!model.HasTargets)
+        {
+            toast.ShowContent(new ToastContent("Для этих файлов форматов нет", "Выделите файлы одного вида", AutoHideMilliseconds: 1800));
+            return;
+        }
         ring = model;
         awaitingDragEnter = false;
-        window.Open(model, workArea, revealVisuals: true);
+        window.Open(model, revealVisuals: true);
         hooks.RingVisible = true;
         SyncKeyCapture();
         UpdateHover(NativeMethods.CursorPosition());
@@ -385,12 +406,10 @@ internal sealed class RingController
 
     private void OpenAwaitingDrag(NativePoint point)
     {
-        var (workArea, scale) = NativeMethods.MonitorAt(point);
-        var model = new RingModel([], RingOpener.Shake, buttonHeld: true, point) { Scale = scale };
-        model.Center = point;
+        var model = new RingModel([], RingOpener.Shake, buttonHeld: true, point, PlaceAt(point));
         ring = model;
         awaitingDragEnter = true;
-        window.Open(model, workArea, revealVisuals: false);
+        window.Open(model, revealVisuals: false);
         hooks.RingVisible = true;
         SyncKeyCapture();
         dragEnterTimer.Stop();
@@ -425,13 +444,15 @@ internal sealed class RingController
     private void RevealWithFiles(IReadOnlyList<string> files)
     {
         var previous = ring!;
-        var (workArea, scale) = NativeMethods.MonitorAt(previous.Center);
-        var model = new RingModel(files, previous.Opener, buttonHeld: true, previous.OpenPoint)
+        var model = new RingModel(files, previous.Opener, buttonHeld: true, previous.OpenPoint, previous.Place)
         {
-            Scale = scale,
             TravelSinceOpen = previous.TravelSinceOpen,
         };
-        model.Center = ClampCenter(previous.Center, model, workArea);
+        if (!model.HasTargets)
+        {
+            CloseRingNow();
+            return;
+        }
         ring = model;
         window.Reveal(model);
         SyncKeyCapture();
@@ -499,7 +520,7 @@ internal sealed class RingController
     {
         if (current.HoversMore)
         {
-            var insideMainBand = current.Hovered!.Value.Distance <= RingGeometry.OuterRadius + 4;
+            var insideMainBand = current.Hovered!.Value.Distance <= current.Size.Outer + 4;
             if (insideMainBand && !current.ExtrasOpen && !extrasTimer.IsEnabled)
             {
                 extrasTimer.Start();
@@ -572,13 +593,30 @@ internal sealed class RingController
         hooks.RingTakesKeys = false;
     }
 
-    private static NativePoint ClampCenter(NativePoint point, RingModel model, NativeRect workArea)
+    private static RingPlace PlaceAroundFile(NativeRect fileBox)
     {
-        var extents = RingGeometry.Extents(model.ExtraLayout);
-        var scale = model.Scale;
-        var x = RingGeometry.ClampBetween(point.X, workArea.Left + extents.Left * scale, workArea.Right - extents.Right * scale);
-        var y = RingGeometry.ClampBetween(point.Y, workArea.Top + extents.Top * scale, workArea.Bottom - extents.Bottom * scale);
-        return new NativePoint((int)Math.Round(x), (int)Math.Round(y));
+        var center = new NativePoint(fileBox.Left + fileBox.Width / 2, fileBox.Top + fileBox.Height / 2);
+        var (workArea, scale) = NativeMethods.MonitorAt(center);
+        var halfDiagonal = Math.Sqrt(fileBox.Width * fileBox.Width + fileBox.Height * fileBox.Height) / 2 / scale;
+        var size = RingSize.AroundHole(halfDiagonal + RingGeometry.HolePadding);
+        return new RingPlace(center, scale, workArea, size);
+    }
+
+    private static RingPlace PlaceAt(NativePoint point)
+    {
+        var (workArea, scale) = NativeMethods.MonitorAt(point);
+        return new RingPlace(point, scale, workArea, RingSize.Standard);
+    }
+
+    private static RingPlace PlaceInsideScreen(NativePoint point)
+    {
+        var (workArea, scale) = NativeMethods.MonitorAt(point);
+        var size = RingSize.Standard;
+        var reach = (size.Outer + WholeRingMargin) * scale;
+        var x = RingGeometry.ClampBetween(point.X, workArea.Left + reach, workArea.Right - reach);
+        var y = RingGeometry.ClampBetween(point.Y, workArea.Top + reach, workArea.Bottom - reach);
+        var center = new NativePoint((int)Math.Round(x), (int)Math.Round(y));
+        return new RingPlace(center, scale, workArea, size);
     }
 
     private async void StartConversion(string target, bool keepOriginal)
@@ -613,7 +651,7 @@ internal sealed class RingController
                 },
                 async () =>
                 {
-                    window.ShowDone(target);
+                    window.ShowDone();
                     await Task.Delay(DoneFlash);
                     ReleaseRing(current);
                 },

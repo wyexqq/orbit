@@ -10,28 +10,39 @@ internal readonly record struct SectorArc(double Start, double End)
     public double Span => End - Start;
 }
 
-internal readonly record struct RingExtents(double Left, double Right, double Top, double Bottom);
+internal readonly record struct RingSize(double Inner, double Outer, double ExtraInner, double ExtraOuter)
+{
+    private const double ProgressInset = 6;
+
+    public static RingSize Standard => AroundHole(RingGeometry.SmallestHole);
+
+    public double ProgressRadius => Inner - ProgressInset;
+
+    public static RingSize AroundHole(double holeRadius)
+    {
+        var inner = RingGeometry.ClampBetween(holeRadius, RingGeometry.SmallestHole, RingGeometry.LargestHole);
+        var outer = inner + RingGeometry.BandThickness;
+        var extraInner = outer + RingGeometry.ExtraGap;
+        var extraOuter = extraInner + RingGeometry.ExtraThickness;
+        return new RingSize(inner, outer, extraInner, extraOuter);
+    }
+}
 
 internal static class RingGeometry
 {
-    public const double InnerRadius = 42;
-    public const double OuterRadius = 104;
-    public const double ExtraInnerRadius = 112;
-    public const double ExtraOuterRadius = 156;
-    public const double CenterRadius = 33;
-    public const double ProgressRadius = 38;
+    public const double SmallestHole = 42;
+    public const double LargestHole = 60;
+    public const double HolePadding = 3;
+    public const double BandThickness = 62;
+    public const double ExtraGap = 8;
+    public const double ExtraThickness = 44;
     public const double Gap = 4;
     public const double Corner = 8;
     public const double HoverShift = 5;
     public const double Slack = 44;
     public const double WindowSize = 480;
     public const double WindowHalf = WindowSize / 2;
-    public const int MainSlots = 5;
-    public const int MaxWithoutMore = 6;
-
-    private const double FullTurn = Math.PI * 2;
-    private const double ExtraMaxSpan = FullTurn / 9;
-    private const double ExtraTotalLimit = Math.PI * 5 / 3;
+    public const double FullTurn = Math.PI * 2;
 
     public static Point Polar(double radius, double angle)
     {
@@ -43,28 +54,25 @@ internal static class RingGeometry
         return ((angle % FullTurn) + FullTurn) % FullTurn;
     }
 
+    public static double AngleNear(double angle, double reference)
+    {
+        var shifted = angle;
+        while (shifted < reference - Math.PI)
+        {
+            shifted += FullTurn;
+        }
+        while (shifted > reference + Math.PI)
+        {
+            shifted -= FullTurn;
+        }
+        return shifted;
+    }
+
     public static IReadOnlyList<SectorArc> SectorsFrom(double firstStart, double span, int count)
     {
         return Enumerable.Range(0, count)
             .Select(index => new SectorArc(firstStart + index * span, firstStart + (index + 1) * span))
             .ToList();
-    }
-
-    public static IReadOnlyList<SectorArc> LayoutMain(int count)
-    {
-        if (count == 0)
-        {
-            return [];
-        }
-        var span = FullTurn / count;
-        return SectorsFrom(-Math.PI / 2 - span / 2, span, count);
-    }
-
-    public static IReadOnlyList<SectorArc> LayoutExtras(SectorArc moreSector, int count)
-    {
-        var preferredSpan = Math.Min(ExtraMaxSpan, ExtraTotalLimit / count);
-        var span = Math.Max(preferredSpan, moreSector.Span / count);
-        return SectorsFrom(moreSector.Middle - span * count / 2, span, count);
     }
 
     public static int SectorIndexAt(double angle, IReadOnlyList<SectorArc> layout)
@@ -78,26 +86,6 @@ internal static class RingGeometry
             }
         }
         return -1;
-    }
-
-    public static RingExtents Extents(IReadOnlyList<SectorArc> extraLayout)
-    {
-        var mainReach = OuterRadius + 10;
-        double left = mainReach, right = mainReach, top = mainReach, bottom = mainReach;
-        const int samplesPerSector = 8;
-        foreach (var sector in extraLayout)
-        {
-            for (var step = 0; step <= samplesPerSector; step++)
-            {
-                var angle = sector.Start + sector.Span * step / samplesPerSector;
-                var point = Polar(ExtraOuterRadius + 6, angle);
-                left = Math.Max(left, -point.X);
-                right = Math.Max(right, point.X);
-                top = Math.Max(top, -point.Y);
-                bottom = Math.Max(bottom, point.Y);
-            }
-        }
-        return new RingExtents(left, right, top, bottom);
     }
 
     public static double ClampBetween(double value, double min, double max)
@@ -127,12 +115,12 @@ internal static class RingGeometry
         return geometry;
     }
 
-    public static Geometry ProgressArc(double fraction)
+    public static Geometry ProgressArc(double fraction, double radius)
     {
         var clamped = Math.Clamp(fraction, 0, 1);
         if (clamped >= 0.999)
         {
-            var circle = new EllipseGeometry(new Point(0, 0), ProgressRadius, ProgressRadius);
+            var circle = new EllipseGeometry(new Point(0, 0), radius, radius);
             circle.Freeze();
             return circle;
         }
@@ -141,8 +129,8 @@ internal static class RingGeometry
         var geometry = new StreamGeometry();
         using (var context = geometry.Open())
         {
-            context.BeginFigure(Polar(ProgressRadius, start), isFilled: false, isClosed: false);
-            context.ArcTo(Polar(ProgressRadius, end), new Size(ProgressRadius, ProgressRadius), 0, clamped > 0.5, SweepDirection.Clockwise, true, false);
+            context.BeginFigure(Polar(radius, start), isFilled: false, isClosed: false);
+            context.ArcTo(Polar(radius, end), new Size(radius, radius), 0, clamped > 0.5, SweepDirection.Clockwise, true, false);
         }
         geometry.Freeze();
         return geometry;

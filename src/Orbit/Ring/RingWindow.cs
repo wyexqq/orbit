@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -17,7 +16,6 @@ namespace Orbit.Ring;
 
 internal sealed class RingWindow : Window
 {
-    private const double HintGap = 32;
     private const double CloseMilliseconds = 170;
 
     private readonly Canvas body = new();
@@ -25,26 +23,16 @@ internal sealed class RingWindow : Window
     private readonly Ellipse hitDisc = new() { Fill = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)) };
     private readonly Canvas extrasLayer = new();
     private readonly Canvas mainLayer = new();
-    private readonly SolidColorBrush centerBrush = new();
-    private readonly SolidColorBrush centerTextBrush = new();
-    private readonly SolidColorBrush centerSubBrush = new();
     private readonly SolidColorBrush accentBrush = new();
     private readonly Path progressPath = new() { StrokeThickness = 3, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
-    private readonly TextBlock centerLabel;
-    private readonly TextBlock centerSub;
-    private readonly Border hint = new();
-    private readonly TextBlock hintTitle = new() { FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 8, 0) };
-    private readonly TextBlock hintText = new();
     private readonly DropShadowEffect shadow = new() { BlurRadius = 28, ShadowDepth = 12, Direction = 270 };
     private readonly List<SectorVisual> mainSectors = [];
     private readonly List<SectorVisual> extraSectors = [];
     private readonly IDropTargetHelper? dropHelper = CreateDropHelper();
     private RingModel? model;
     private Palette palette = Palette.Dark;
-    private NativeRect workArea;
     private IntPtr handle;
     private bool isClosing;
-    private string? hintShownFor;
 
     public RingWindow()
     {
@@ -61,8 +49,6 @@ internal sealed class RingWindow : Window
         Height = RingGeometry.WindowSize;
         Title = "Orbit";
 
-        centerLabel = CenteredText.Create(string.Empty, new Point(0, 0), 15, FontWeights.Bold, centerTextBrush);
-        centerSub = CenteredText.Create(string.Empty, new Point(0, 11), 10, FontWeights.Normal, centerSubBrush);
         progressPath.Stroke = accentBrush;
 
         body.RenderTransform = bodyScale;
@@ -70,32 +56,13 @@ internal sealed class RingWindow : Window
         body.Children.Add(extrasLayer);
         body.Children.Add(mainLayer);
         body.Children.Add(progressPath);
-        body.Children.Add(new Ellipse
-        {
-            Width = RingGeometry.CenterRadius * 2,
-            Height = RingGeometry.CenterRadius * 2,
-            Fill = centerBrush,
-            Margin = new Thickness(-RingGeometry.CenterRadius, -RingGeometry.CenterRadius, 0, 0),
-        });
-        body.Children.Add(centerLabel);
-        body.Children.Add(centerSub);
 
         var origin = new Canvas { RenderTransform = new TranslateTransform(RingGeometry.WindowHalf, RingGeometry.WindowHalf) };
         origin.Children.Add(hitDisc);
         origin.Children.Add(body);
 
-        hint.CornerRadius = new CornerRadius(16);
-        hint.Padding = new Thickness(12, 6, 12, 6);
-        hint.Child = new StackPanel { Orientation = Orientation.Horizontal, Children = { hintTitle, hintText } };
-        hint.Opacity = 0;
-        hint.IsHitTestVisible = false;
-        hint.Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 6, Direction = 270, Opacity = 0.25 };
-        TextElement.SetFontSize(hint, 12.5);
-        TextElement.SetFontFamily(hint, new FontFamily("Segoe UI Variable Text, Segoe UI"));
-
         var root = new Canvas { Width = RingGeometry.WindowSize, Height = RingGeometry.WindowSize };
         root.Children.Add(origin);
-        root.Children.Add(hint);
         Content = root;
 
         SourceInitialized += (_, _) => PrepareNativeWindow();
@@ -112,10 +79,9 @@ internal sealed class RingWindow : Window
 
     public bool IsShowingRing => IsVisible && !isClosing;
 
-    public void Open(RingModel ring, NativeRect monitorWorkArea, bool revealVisuals)
+    public void Open(RingModel ring, bool revealVisuals)
     {
         model = ring;
-        workArea = monitorWorkArea;
         isClosing = false;
         palette = Palette.Current();
         ApplyPalette(Palette.Hex(ring.Accent));
@@ -167,8 +133,6 @@ internal sealed class RingWindow : Window
             extraSectors[index].SetState(isHovered, false);
         }
         PaintDigits();
-        PaintCenter(model.TargetOf(hovered));
-        PaintHint(model.TargetOf(hovered));
     }
 
     public void ShowExtras()
@@ -185,8 +149,8 @@ internal sealed class RingWindow : Window
                 model.Extras[index],
                 index,
                 model.ExtraLayout[index],
-                RingGeometry.ExtraInnerRadius,
-                RingGeometry.ExtraOuterRadius,
+                model.Size.ExtraInner,
+                model.Size.ExtraOuter,
                 palette,
                 Palette.Hex(model.Accent),
                 Palette.Hex(model.OnAccent));
@@ -210,7 +174,7 @@ internal sealed class RingWindow : Window
         {
             return;
         }
-        var reach = model.ExtrasOpen ? RingGeometry.ExtraOuterRadius : RingGeometry.OuterRadius;
+        var reach = model.ExtrasOpen ? model.Size.ExtraOuter : model.Size.Outer;
         var radius = reach + (model.ButtonHeld ? RingGeometry.Slack : 6);
         radius = Math.Min(radius, RingGeometry.WindowHalf - 1);
         hitDisc.Width = radius * 2;
@@ -224,24 +188,12 @@ internal sealed class RingWindow : Window
         {
             sector.FadeForWork();
         }
-        HideHint();
-        progressPath.Data = RingGeometry.ProgressArc(fraction);
+        progressPath.Data = RingGeometry.ProgressArc(fraction, ProgressRadius());
     }
 
-    public void ShowDone(string target)
+    public void ShowDone()
     {
-        progressPath.Data = RingGeometry.ProgressArc(1);
-        var accent = Palette.Hex(model?.Accent ?? "#2F6FE0");
-        var onAccent = Palette.Hex(model?.OnAccent ?? "#FFFFFF");
-        Animate.ColorTo(centerBrush, accent, 150);
-        Animate.ColorTo(centerTextBrush, onAccent, 150);
-        Animate.ColorTo(centerSubBrush, onAccent, 150);
-        SetCenterText(target.ToUpperInvariant(), "готово");
-    }
-
-    public void ShowCenterMessage(string label, string sub)
-    {
-        SetCenterText(label, sub);
+        progressPath.Data = RingGeometry.ProgressArc(1, ProgressRadius());
     }
 
     public void CloseRing()
@@ -251,7 +203,6 @@ internal sealed class RingWindow : Window
             return;
         }
         isClosing = true;
-        HideHint();
         Animate.Double(bodyScale, ScaleTransform.ScaleXProperty, bodyScale.ScaleX, 0.82, CloseMilliseconds, Animate.Accelerate);
         Animate.Double(bodyScale, ScaleTransform.ScaleYProperty, bodyScale.ScaleY, 0.82, CloseMilliseconds, Animate.Accelerate);
         Animate.ElementDouble(body, OpacityProperty, body.Opacity, 0, CloseMilliseconds, Animate.Accelerate);
@@ -381,17 +332,16 @@ internal sealed class RingWindow : Window
         NativeMethods.SetWindowPos(handle, NativeMethods.TopmostWindow, left, top, size, size, flags);
     }
 
+    private double ProgressRadius()
+    {
+        return (model?.Size ?? RingSize.Standard).ProgressRadius;
+    }
+
     private void ApplyPalette(Color accent)
     {
-        centerBrush.Color = palette.Center;
-        centerTextBrush.Color = palette.CenterText;
-        centerSubBrush.Color = palette.DimText;
         accentBrush.Color = accent;
         shadow.Color = palette.Shadow;
         shadow.Opacity = palette.ShadowOpacity;
-        hint.Background = new SolidColorBrush(palette.PillBackground);
-        hintTitle.Foreground = new SolidColorBrush(palette.PillText);
-        hintText.Foreground = new SolidColorBrush(palette.PillText);
     }
 
     private void BuildSectors(RingModel ring)
@@ -408,15 +358,14 @@ internal sealed class RingWindow : Window
                 ring.Main[index],
                 index,
                 ring.MainLayout[index],
-                RingGeometry.InnerRadius,
-                RingGeometry.OuterRadius,
+                ring.Size.Inner,
+                ring.Size.Outer,
                 palette,
                 accent,
                 onAccent);
             mainSectors.Add(sector);
             mainLayer.Children.Add(sector.Root);
         }
-        HideHint();
     }
 
     private void PlayEntrance()
@@ -444,81 +393,5 @@ internal sealed class RingWindow : Window
         {
             sector.ShowDigit(showsDigits && digitsOnExtras);
         }
-    }
-
-    private void PaintCenter(string? target)
-    {
-        if (model is null)
-        {
-            return;
-        }
-        var source = SourceDescription.Of(model.Files);
-        if (!model.HasTargets)
-        {
-            SetCenterText(source.Label, "нечего менять");
-            return;
-        }
-        if (target is not null && target != RingModel.More)
-        {
-            SetCenterText(target.ToUpperInvariant(), $"из {source.Short}");
-            return;
-        }
-        SetCenterText(source.Label, source.Sub);
-    }
-
-    private void SetCenterText(string label, string sub)
-    {
-        centerLabel.Text = label;
-        centerSub.Text = sub;
-        CenteredText.MoveTo(centerLabel, new Point(0, sub.Length > 0 ? -5 : 0));
-        CenteredText.MoveTo(centerSub, new Point(0, 11));
-    }
-
-    private void PaintHint(string? target)
-    {
-        if (model is null || target is null || target == RingModel.More)
-        {
-            HideHint();
-            return;
-        }
-        var hintKey = $"{target}:{model.ExtrasOpen}";
-        if (hintKey == hintShownFor)
-        {
-            return;
-        }
-        hintShownFor = hintKey;
-        var hintLine = FormatCatalog.HintFor(FormatCatalog.ExtensionOf(model.Files[0]), target);
-        hintTitle.Text = target.ToUpperInvariant();
-        hintText.Text = hintLine;
-        hintText.Visibility = hintLine.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        PositionHint();
-        Animate.ElementDoubleTo(hint, OpacityProperty, 1, 120);
-    }
-
-    private void PositionHint()
-    {
-        if (model is null)
-        {
-            return;
-        }
-        hint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var extents = model.CurrentExtents();
-        var bottomOnScreen = model.Center.Y + (extents.Bottom + HintGap) * model.Scale;
-        var top = bottomOnScreen <= workArea.Bottom
-            ? RingGeometry.WindowHalf + extents.Bottom
-            : RingGeometry.WindowHalf - extents.Top - HintGap;
-        var left = RingGeometry.WindowHalf - hint.DesiredSize.Width / 2;
-        Canvas.SetLeft(hint, Math.Max(0, left));
-        Canvas.SetTop(hint, Math.Clamp(top, 0, RingGeometry.WindowSize - hint.DesiredSize.Height));
-    }
-
-    private void HideHint()
-    {
-        if (hintShownFor is null)
-        {
-            return;
-        }
-        hintShownFor = null;
-        Animate.ElementDoubleTo(hint, OpacityProperty, 0, 100);
     }
 }
